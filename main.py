@@ -14,6 +14,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def all_segments_labeled(detail, segments):
+    segment_names = {
+        segment.get("name", "").strip()
+        for segment in segments
+        if segment.get("name", "").strip()
+    }
+    if not segment_names:
+        return False
+
+    interval_labels = {
+        interval.get("label", "").strip()
+        for interval in detail.get("icu_intervals", [])
+        if interval.get("label", "").strip()
+    }
+    return segment_names.issubset(interval_labels)
+
+
 def sync_today_activities(client, today=None):
     today = today or datetime.now(ZoneInfo(APP_TIMEZONE)).strftime("%Y-%m-%d")
     logger.info(f"查询当天活动：{today}")
@@ -66,6 +83,10 @@ def relabel_activity_segments(client, activity_id):
 
     if not segments:
         logger.warning("该活动没有赛段，流程结束")
+        return
+
+    if all_segments_labeled(detail, segments):
+        logger.info("该活动赛段已全部标记，跳过重复同步")
         return
 
     # 步骤 3：清除所有分段

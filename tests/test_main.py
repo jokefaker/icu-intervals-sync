@@ -28,6 +28,28 @@ class MainTest(unittest.TestCase):
         relabel.assert_any_call(client, "activity-2")
         self.assertEqual(2, relabel.call_count)
 
+    def test_relabel_activity_segments_skips_when_all_segments_are_already_labeled(self):
+        client = Mock()
+        client.get_activity_detail.return_value = {
+            "type": "Ride",
+            "name": "测试骑行",
+            "icu_intervals": [
+                {"label": "赛段 A"},
+                {"label": "赛段 B"},
+            ],
+        }
+        client.get_segments.return_value = [
+            {"name": "赛段 A"},
+            {"name": "赛段 B"},
+        ]
+
+        main.relabel_activity_segments(client, "activity-1")
+
+        client.get_activity_detail.assert_called_once_with("activity-1")
+        client.get_segments.assert_called_once_with("activity-1")
+        client.clear_intervals.assert_not_called()
+        client.mark_interval.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
