@@ -50,7 +50,7 @@ class ICUClient:
 
     def get_activity_detail(self, activity_id):
         """获取活动详情"""
-        url = f"{API_BASE}/activity/{activity_id}"
+        url = f"{API_BASE}/activity/{activity_id}?intervals=true"
         logger.info(f"获取活动详情：activity_id={activity_id}")
         response = self.session.get(url)
         response.raise_for_status()

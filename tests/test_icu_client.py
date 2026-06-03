@@ -18,7 +18,7 @@ class ICUClientTest(unittest.TestCase):
         activity = client.get_activity_detail("i152273673")
 
         client.session.get.assert_called_once_with(
-            "https://intervals.icu/api/v1/activity/i152273673"
+            "https://intervals.icu/api/v1/activity/i152273673?intervals=true"
         )
         response.raise_for_status.assert_called_once_with()
         self.assertEqual({"id": "i152273673", "name": "测试活动"}, activity)
