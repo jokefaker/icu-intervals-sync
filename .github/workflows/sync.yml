@@ -2,8 +2,6 @@ name: Sync Intervals ICU Segments
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/5 * * * *"
 
 jobs:
   sync:
