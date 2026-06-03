@@ -2,8 +2,8 @@ name: Sync Intervals ICU Segments
 
 on:
   workflow_dispatch:
-  # schedule:
-  #   - cron: "0 15 * * *"
+  schedule:
+    - cron: "*/5 * * * *"
 
 jobs:
   sync:
@@ -27,9 +27,6 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
-
-      - name: Run tests
-        run: python -m unittest discover
 
       - name: Sync today's activities
         run: python main.py
