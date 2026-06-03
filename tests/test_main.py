@@ -12,8 +12,9 @@ class MainTest(unittest.TestCase):
     def test_sync_today_activities_relabels_each_activity(self):
         client = Mock()
         client.get_activities.return_value = [
-            {"id": "activity-1"},
-            {"id": "activity-2"},
+            {"id": "activity-1", "type": "Ride"},
+            {"id": "activity-2", "type": "Ride"},
+            {"id": "activity-3", "type": "Run"},
             {"id": None},
         ]
 

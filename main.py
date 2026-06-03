@@ -31,8 +31,12 @@ def sync_today_activities(client, today=None):
     for activity in activities:
         activity_id = activity.get("id")
         activity_name = activity.get("name", "未知活动")
+        activity_type = activity.get("type")
         if not activity_id:
             logger.warning(f"活动缺少 ID，跳过：{activity_name}")
+            continue
+        if activity_type != "Ride":
+            logger.warning(f"活动不是真实骑行，跳过：id={activity_id}，名称={activity_name}，类型={activity_type}")
             continue
         logger.info("=" * 60)
         logger.info(f"开始同步活动：id={activity_id}，名称={activity_name}")
