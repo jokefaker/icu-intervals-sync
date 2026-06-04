@@ -4,20 +4,23 @@ Sync today's Intervals.icu ride segments into activity intervals.
 
 ## Docker on NAS
 
-Build the image:
+Most UGREEN NAS models run `linux/amd64`. Build the amd64 image:
 
 ```bash
-docker build -t icu-intervals-sync:latest .
+docker buildx build --platform linux/amd64 -t icu-intervals-sync:amd64 --load .
 ```
 
 Export it for NAS import:
 
 ```bash
-docker save icu-intervals-sync:latest | gzip > icu-intervals-sync.tar.gz
+docker save icu-intervals-sync:amd64 | gzip > icu-intervals-sync-amd64.tar.gz
 ```
 
-Import `icu-intervals-sync.tar.gz` in the NAS container UI, then create a
-container from `icu-intervals-sync:latest`.
+Import `icu-intervals-sync-amd64.tar.gz` in the NAS container UI, then create a
+container from `icu-intervals-sync:amd64`.
+
+If your NAS is ARM instead of amd64, build with `--platform linux/arm64` and use
+a matching tag, such as `icu-intervals-sync:arm64`.
 
 Set these environment variables in the NAS container UI:
 
