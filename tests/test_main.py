@@ -28,14 +28,14 @@ class MainTest(unittest.TestCase):
         relabel.assert_any_call(client, "activity-2")
         self.assertEqual(2, relabel.call_count)
 
-    def test_relabel_activity_segments_skips_when_all_segments_are_already_labeled(self):
+    def test_relabel_activity_segments_skips_when_any_interval_is_labeled(self):
         client = Mock()
         client.get_activity_detail.return_value = {
             "type": "Ride",
             "name": "测试骑行",
             "icu_intervals": [
                 {"label": "赛段 A"},
-                {"label": "赛段 B"},
+                {"label": None},
             ],
         }
         client.get_segments.return_value = [
@@ -50,21 +50,19 @@ class MainTest(unittest.TestCase):
         client.clear_intervals.assert_not_called()
         client.mark_interval.assert_not_called()
 
-    def test_all_segments_labeled_handles_null_label_and_name(self):
-        detail = {
-            "icu_intervals": [
-                {"label": "赛段 A"},
-                {"label": None},
-            ],
-        }
-        segments = [
-            {"name": "赛段 A"},
-            {"name": None},
-        ]
-
-        # Unlabeled intervals/segments come back as null from the API; this must
-        # not raise AttributeError on None.strip().
-        self.assertTrue(main.all_segments_labeled(detail, segments))
+    def test_has_labeled_intervals(self):
+        # 出现任意带 label 的分段 -> 判定为用户已操作
+        self.assertTrue(
+            main.has_labeled_intervals({"icu_intervals": [{"label": "赛段 A"}]})
+        )
+        # label 为 null / 空白 / 缺失 -> 不算
+        self.assertFalse(
+            main.has_labeled_intervals(
+                {"icu_intervals": [{"label": None}, {"label": "  "}, {}]}
+            )
+        )
+        # 没有 icu_intervals 字段 -> 不算
+        self.assertFalse(main.has_labeled_intervals({}))
 
 
 if __name__ == "__main__":

@@ -18,9 +18,16 @@ def load_env_file(path=ENV_FILE):
 
 load_env_file()
 
-AUTH_USERNAME = os.environ.get("INTERVALS_ICU_AUTH_USERNAME", "API_KEY")
-AUTH_PASSWORD = os.environ["INTERVALS_ICU_AUTH_PASSWORD"]
-ATHLETE_ID = os.environ["INTERVALS_ICU_ATHLETE_ID"]
+def require_env(name):
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        raise RuntimeError(f"缺少必填环境变量：{name}，请在容器参数中填写")
+    return value
+
+
+AUTH_USERNAME = (os.environ.get("INTERVALS_ICU_AUTH_USERNAME") or "API_KEY").strip()
+AUTH_PASSWORD = require_env("INTERVALS_ICU_AUTH_PASSWORD")
+ATHLETE_ID = require_env("INTERVALS_ICU_ATHLETE_ID")
 API_BASE = "https://intervals.icu/api/v1"
 DEFAULT_DAYS_RANGE = 7
 APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Asia/Shanghai")

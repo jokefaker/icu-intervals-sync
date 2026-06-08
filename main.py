@@ -14,21 +14,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def all_segments_labeled(detail, segments):
-    segment_names = {
-        (segment.get("name") or "").strip()
-        for segment in segments
-        if (segment.get("name") or "").strip()
-    }
-    if not segment_names:
-        return False
-
-    interval_labels = {
+def has_labeled_intervals(detail):
+    # 只要 intervals 里出现任意带 label 的分段，就认为用户已手动操作过，不再重复标记
+    return any(
         (interval.get("label") or "").strip()
         for interval in detail.get("icu_intervals", [])
-        if (interval.get("label") or "").strip()
-    }
-    return segment_names.issubset(interval_labels)
+    )
 
 
 def sync_today_activities(client, today=None):
@@ -85,8 +76,8 @@ def relabel_activity_segments(client, activity_id):
         logger.warning("该活动没有赛段，流程结束")
         return
 
-    if all_segments_labeled(detail, segments):
-        logger.info("该活动赛段已全部标记，跳过重复同步")
+    if has_labeled_intervals(detail):
+        logger.info("该活动已存在带 label 的分段，判定为用户已手动操作，跳过同步")
         return
 
     # 步骤 3：清除所有分段
