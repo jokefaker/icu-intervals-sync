@@ -16,17 +16,17 @@ logger = logging.getLogger(__name__)
 
 def all_segments_labeled(detail, segments):
     segment_names = {
-        segment.get("name", "").strip()
+        (segment.get("name") or "").strip()
         for segment in segments
-        if segment.get("name", "").strip()
+        if (segment.get("name") or "").strip()
     }
     if not segment_names:
         return False
 
     interval_labels = {
-        interval.get("label", "").strip()
+        (interval.get("label") or "").strip()
         for interval in detail.get("icu_intervals", [])
-        if interval.get("label", "").strip()
+        if (interval.get("label") or "").strip()
     }
     return segment_names.issubset(interval_labels)
 
@@ -101,7 +101,7 @@ def relabel_activity_segments(client, activity_id):
     logger.info("【步骤 4】逐个标记赛段")
     success, skip, fail = 0, 0, 0
     for i, segment in enumerate(segments, 1):
-        seg_name = segment.get("name", "").strip()
+        seg_name = (segment.get("name") or "").strip()
         if not seg_name:
             skip += 1
             continue

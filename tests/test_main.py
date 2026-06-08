@@ -50,6 +50,22 @@ class MainTest(unittest.TestCase):
         client.clear_intervals.assert_not_called()
         client.mark_interval.assert_not_called()
 
+    def test_all_segments_labeled_handles_null_label_and_name(self):
+        detail = {
+            "icu_intervals": [
+                {"label": "赛段 A"},
+                {"label": None},
+            ],
+        }
+        segments = [
+            {"name": "赛段 A"},
+            {"name": None},
+        ]
+
+        # Unlabeled intervals/segments come back as null from the API; this must
+        # not raise AttributeError on None.strip().
+        self.assertTrue(main.all_segments_labeled(detail, segments))
+
 
 if __name__ == "__main__":
     unittest.main()

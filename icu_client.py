@@ -73,7 +73,7 @@ class ICUClient:
         segment_effort_id = segment.get("id")
         segment_id = segment.get("segment_id")
         starred  = segment.get("starred")
-        segment_name = segment.get("name", "未知赛段").strip()
+        segment_name = (segment.get("name") or "未知赛段").strip()
         start_index = segment.get("start_index")
         end_index = segment.get("end_index")
         icu_interval_id = -abs(start_index)
