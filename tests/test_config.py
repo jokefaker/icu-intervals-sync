@@ -44,6 +44,39 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual("file-password", config.AUTH_PASSWORD)
         self.assertEqual("file-athlete", config.ATHLETE_ID)
 
+    def test_config_parses_multiple_athletes_and_discovery_flag(self):
+        with patch.dict(
+            os.environ,
+            {
+                "INTERVALS_ICU_AUTH_PASSWORD": "env-password",
+                "INTERVALS_ICU_ATHLETE_ID": "coach",
+                "INTERVALS_ICU_ATHLETE_IDS": " i1, i2, i1 ",
+                "INTERVALS_ICU_DISCOVER_ATHLETES": "true",
+            },
+            clear=True,
+        ):
+            import config
+
+            config = importlib.reload(config)
+
+        self.assertEqual(("i1", "i2"), config.ATHLETE_IDS)
+        self.assertTrue(config.DISCOVER_ATHLETES)
+
+    def test_config_rejects_invalid_discovery_flag(self):
+        with patch.dict(
+            os.environ,
+            {
+                "INTERVALS_ICU_AUTH_PASSWORD": "env-password",
+                "INTERVALS_ICU_ATHLETE_ID": "coach",
+                "INTERVALS_ICU_DISCOVER_ATHLETES": "maybe",
+            },
+            clear=True,
+        ):
+            import config
+
+            with self.assertRaises(RuntimeError):
+                importlib.reload(config)
+
 
 if __name__ == "__main__":
     unittest.main()

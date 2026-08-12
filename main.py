@@ -3,8 +3,9 @@ import logging
 import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from config import APP_TIMEZONE, ATHLETE_ID
+from config import APP_TIMEZONE, ATHLETE_ID, ATHLETE_IDS, DISCOVER_ATHLETES
 from icu_client import ICUClient
+from segment_selector import is_starred, select_segments
 
 logging.basicConfig(
     level=logging.INFO,
@@ -12,6 +13,38 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
+
+
+def _athlete_id_from_record(athlete):
+    athlete_id = athlete.get("id") or athlete.get("athlete_id")
+    return str(athlete_id).strip() if athlete_id is not None else ""
+
+
+def _comparable_athlete_id(athlete_id):
+    athlete_id = str(athlete_id).strip()
+    if athlete_id.startswith("i") and athlete_id[1:].isdigit():
+        return athlete_id[1:]
+    return athlete_id
+
+
+def get_target_athlete_ids(client):
+    """Resolve explicit targets or discover athletes visible to a coach."""
+    if ATHLETE_IDS:
+        return list(ATHLETE_IDS)
+    if not DISCOVER_ATHLETES:
+        return [ATHLETE_ID]
+
+    athletes = client.get_athletes()
+    athlete_ids = [ATHLETE_ID]
+    seen_ids = {_comparable_athlete_id(ATHLETE_ID)}
+    for athlete in athletes:
+        athlete_id = _athlete_id_from_record(athlete)
+        comparable_id = _comparable_athlete_id(athlete_id)
+        if not athlete_id or comparable_id in seen_ids:
+            continue
+        athlete_ids.append(athlete_id)
+        seen_ids.add(comparable_id)
+    return athlete_ids
 
 
 def has_labeled_intervals(detail):
@@ -29,7 +62,7 @@ def sync_today_activities(client, today=None):
         activities = client.get_activities(oldest=today, newest=today)
     except Exception as e:
         logger.error(f"查询当天活动失败：{e}")
-        sys.exit(1)
+        return
 
     if not activities:
         logger.warning("当天没有活动，流程结束")
@@ -59,7 +92,7 @@ def relabel_activity_segments(client, activity_id):
         logger.info(f"活动 ID：{activity_id}，名称：{detail.get('name', '未知活动')}")
     except Exception as e:
         logger.error(f"获取活动详情失败：{e}")
-        sys.exit(1)
+        return
     if detail.get("type") != "Ride":
         logger.warning("该活动不是真实骑行，忽略")
         return
@@ -80,6 +113,18 @@ def relabel_activity_segments(client, activity_id):
         logger.info("该活动已存在带 label 的分段，判定为用户已手动操作，跳过同步")
         return
 
+    selected_segments = select_segments(segments)
+    if not selected_segments:
+        logger.warning("该活动没有名称和索引均有效的赛段，保留现有分段")
+        return
+    starred_count = sum(is_starred(segment) for segment in selected_segments)
+    logger.info(
+        "赛段择优完成：原始=%s，保留=%s，其中收藏=%s",
+        len(segments),
+        len(selected_segments),
+        starred_count,
+    )
+
     # 步骤 3：清除所有分段
     logger.info("【步骤 3】清除所有分段")
     try:
@@ -91,7 +136,7 @@ def relabel_activity_segments(client, activity_id):
     # 步骤 4：逐个标记赛段
     logger.info("【步骤 4】逐个标记赛段")
     success, skip, fail = 0, 0, 0
-    for i, segment in enumerate(segments, 1):
+    for i, segment in enumerate(selected_segments, 1):
         seg_name = (segment.get("name") or "").strip()
         if not seg_name:
             skip += 1
@@ -114,7 +159,23 @@ def main():
     logger.info("=" * 60)
 
     client = ICUClient(athlete_id=ATHLETE_ID)
-    sync_today_activities(client)
+    try:
+        athlete_ids = get_target_athlete_ids(client)
+    except Exception as e:
+        logger.error(f"获取同步运动员列表失败：{e}")
+        return
+
+    if not athlete_ids:
+        logger.warning("没有找到需要同步的运动员")
+        return
+
+    logger.info("本轮将同步 %s 名运动员", len(athlete_ids))
+    for athlete_id in athlete_ids:
+        logger.info("开始同步运动员：athlete_id=%s", athlete_id)
+        try:
+            sync_today_activities(client.for_athlete(athlete_id))
+        except Exception:
+            logger.exception("同步运动员失败：athlete_id=%s", athlete_id)
 
 
 if __name__ == "__main__":
