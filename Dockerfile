@@ -27,6 +27,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY config.py icu_client.py main.py runner.py segment_selector.py ./
+COPY config.py icu_client.py main.py runner.py segment_selector.py strava_segments.py strava_segments_chart.js ./
 
 CMD ["python", "runner.py"]

@@ -53,6 +53,50 @@ class ICUClient:
             raise ValueError("运动员列表接口返回了非列表数据")
         return athletes
 
+    def get_custom_items(self):
+        """List custom fields, charts, streams, and other athlete items."""
+        url = f"{API_BASE}/athlete/{self.athlete_id}/custom-item"
+        logger.info("获取自定义项目：athlete_id=%s", self.athlete_id)
+        response = self.session.get(url, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        items = response.json()
+        if not isinstance(items, list):
+            raise ValueError("自定义项目接口返回了非列表数据")
+        return items
+
+    def create_custom_item(self, item):
+        """Create a custom field, chart, stream, or other athlete item."""
+        url = f"{API_BASE}/athlete/{self.athlete_id}/custom-item"
+        logger.info(
+            "创建自定义项目：athlete_id=%s，name=%s",
+            self.athlete_id,
+            item.get("name"),
+        )
+        response = self.session.post(url, json=item, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response.json()
+
+    def get_sport_settings(self, activity_type):
+        """Get settings for an activity type such as Ride."""
+        url = (
+            f"{API_BASE}/athlete/{self.athlete_id}/sport-settings/{activity_type}"
+        )
+        response = self.session.get(url, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response.json()
+
+    def update_sport_settings(self, settings_id, fields):
+        """Update selected sport settings without recalculating HR zones."""
+        url = f"{API_BASE}/athlete/{self.athlete_id}/sport-settings/{settings_id}"
+        response = self.session.put(
+            url,
+            params={"recalcHrZones": "false"},
+            json=fields,
+            timeout=REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        return response.json()
+
     def get_latest_activity(self, days=DEFAULT_DAYS_RANGE):
         """查询活动列表，返回最新的一条活动"""
         newest = datetime.now().strftime("%Y-%m-%d")
@@ -90,6 +134,13 @@ class ICUClient:
         url = f"{API_BASE}/activity/{activity_id}?intervals=true"
         logger.info(f"获取活动详情：activity_id={activity_id}")
         response = self.session.get(url, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response.json()
+
+    def update_activity_fields(self, activity_id, fields):
+        """Update activity fields, including custom activity field codes."""
+        url = f"{API_BASE}/activity/{activity_id}"
+        response = self.session.put(url, json=fields, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         return response.json()
 

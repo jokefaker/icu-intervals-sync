@@ -61,6 +61,14 @@ are discarded. When the remaining regular segments overlap each other, the
 longer segment wins. The result is written in activity order. Invalid or unnamed
 segments are ignored.
 
+For each target athlete, the service also provisions the private
+`StravaSegmentsJson` activity field and `Strava 路段` activity chart when they do
+not already exist. The chart is added to the athlete's Ride home charts. This
+check runs once per athlete per container process and is idempotent across
+restarts. Every Ride stores all valid raw Strava segments in the custom field so
+the chart can display them even when interval relabeling is skipped because the
+athlete has manually labeled intervals.
+
 Enable automatic restart for the container.
 
 ## Local Run

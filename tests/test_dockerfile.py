@@ -9,6 +9,8 @@ class DockerfileTest(unittest.TestCase):
         )
 
         self.assertIn("segment_selector.py", dockerfile)
+        self.assertIn("strava_segments.py", dockerfile)
+        self.assertIn("strava_segments_chart.js", dockerfile)
         self.assertIn("INTERVALS_ICU_ATHLETE_IDS", dockerfile)
         self.assertIn("INTERVALS_ICU_DISCOVER_ATHLETES", dockerfile)
 

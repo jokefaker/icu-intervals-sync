@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from config import APP_TIMEZONE, ATHLETE_ID, ATHLETE_IDS, DISCOVER_ATHLETES
 from icu_client import ICUClient
 from segment_selector import is_starred, select_segments
+from strava_segments import FIELD_CODE, build_segments_json, ensure_assets
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,6 +14,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
+_initialized_asset_athletes = set()
 
 
 def _athlete_id_from_record(athlete):
@@ -47,12 +49,39 @@ def get_target_athlete_ids(client):
     return athlete_ids
 
 
+def ensure_assets_once(client):
+    athlete_key = _comparable_athlete_id(client.athlete_id)
+    if athlete_key in _initialized_asset_athletes:
+        return
+
+    result = ensure_assets(client)
+    _initialized_asset_athletes.add(athlete_key)
+    logger.info(
+        "Strava 图表初始化完成：athlete_id=%s，字段新建=%s，图表新建=%s，图表启用=%s",
+        client.athlete_id,
+        result["field_created"],
+        result["chart_created"],
+        result["chart_enabled"],
+    )
+
+
 def has_labeled_intervals(detail):
     # 只要 intervals 里出现任意带 label 的分段，就认为用户已手动操作过，不再重复标记
     return any(
         (interval.get("label") or "").strip()
         for interval in detail.get("icu_intervals", [])
     )
+
+
+def sync_strava_segments_data(client, activity_id, detail, segments):
+    value = build_segments_json(detail, segments)
+    if detail.get(FIELD_CODE) == value:
+        logger.info("Strava 路段图表数据未变化，跳过写入")
+        return False
+
+    client.update_activity_fields(activity_id, {FIELD_CODE: value})
+    logger.info("Strava 路段图表数据已更新：原始赛段=%s", len(segments))
+    return True
 
 
 def sync_today_activities(client, today=None):
@@ -104,6 +133,11 @@ def relabel_activity_segments(client, activity_id):
     except Exception as e:
         logger.error(f"获取赛段失败：{e}")
         return
+
+    try:
+        sync_strava_segments_data(client, activity_id, detail, segments)
+    except Exception as e:
+        logger.error(f"更新 Strava 路段图表数据失败：{e}")
 
     if not segments:
         logger.warning("该活动没有赛段，流程结束")
@@ -172,8 +206,13 @@ def main():
     logger.info("本轮将同步 %s 名运动员", len(athlete_ids))
     for athlete_id in athlete_ids:
         logger.info("开始同步运动员：athlete_id=%s", athlete_id)
+        athlete_client = client.for_athlete(athlete_id)
         try:
-            sync_today_activities(client.for_athlete(athlete_id))
+            ensure_assets_once(athlete_client)
+        except Exception:
+            logger.exception("初始化 Strava 图表失败：athlete_id=%s", athlete_id)
+        try:
+            sync_today_activities(athlete_client)
         except Exception:
             logger.exception("同步运动员失败：athlete_id=%s", athlete_id)
 

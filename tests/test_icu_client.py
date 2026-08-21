@@ -63,6 +63,73 @@ class ICUClientTest(unittest.TestCase):
         response.raise_for_status.assert_called_once_with()
         self.assertEqual([{"id": "activity-1"}], activities)
 
+    def test_get_custom_items_lists_athlete_items(self):
+        client = ICUClient(athlete_id="athlete-1", auth_username="user", auth_password="pass")
+        response = Mock()
+        response.json.return_value = [{"id": 10, "type": "ACTIVITY_FIELD"}]
+        client.session.get = Mock(return_value=response)
+
+        items = client.get_custom_items()
+
+        client.session.get.assert_called_once_with(
+            "https://intervals.icu/api/v1/athlete/athlete-1/custom-item",
+            timeout=30,
+        )
+        response.raise_for_status.assert_called_once_with()
+        self.assertEqual([{"id": 10, "type": "ACTIVITY_FIELD"}], items)
+
+    def test_create_custom_item_posts_definition(self):
+        client = ICUClient(athlete_id="athlete-1", auth_username="user", auth_password="pass")
+        response = Mock()
+        response.json.return_value = {"id": 10}
+        client.session.post = Mock(return_value=response)
+        definition = {"name": "Chart", "type": "ACTIVITY_CHART"}
+
+        created = client.create_custom_item(definition)
+
+        client.session.post.assert_called_once_with(
+            "https://intervals.icu/api/v1/athlete/athlete-1/custom-item",
+            json=definition,
+            timeout=30,
+        )
+        response.raise_for_status.assert_called_once_with()
+        self.assertEqual({"id": 10}, created)
+
+    def test_update_sport_settings_uses_partial_update(self):
+        client = ICUClient(athlete_id="athlete-1", auth_username="user", auth_password="pass")
+        response = Mock()
+        response.json.return_value = {"id": 30}
+        client.session.put = Mock(return_value=response)
+        fields = {"activity_charts": {"home": [{"id": "20"}]}}
+
+        updated = client.update_sport_settings(30, fields)
+
+        client.session.put.assert_called_once_with(
+            "https://intervals.icu/api/v1/athlete/athlete-1/sport-settings/30",
+            params={"recalcHrZones": "false"},
+            json=fields,
+            timeout=30,
+        )
+        response.raise_for_status.assert_called_once_with()
+        self.assertEqual({"id": 30}, updated)
+
+    def test_update_activity_fields_puts_custom_field_code(self):
+        client = ICUClient(athlete_id="athlete-1", auth_username="user", auth_password="pass")
+        response = Mock()
+        response.json.return_value = {"id": "activity-1"}
+        client.session.put = Mock(return_value=response)
+        fields = {"StravaSegmentsJson": "{}"}
+
+        updated = client.update_activity_fields("activity-1", fields)
+
+        client.session.put.assert_called_once_with(
+            "https://intervals.icu/api/v1/activity/activity-1",
+            json=fields,
+            timeout=30,
+        )
+        response.raise_for_status.assert_called_once_with()
+        self.assertEqual({"id": "activity-1"}, updated)
+
 
 if __name__ == "__main__":
     unittest.main()

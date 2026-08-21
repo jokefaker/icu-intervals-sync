@@ -96,6 +96,7 @@ class MainTest(unittest.TestCase):
 
         client.get_activity_detail.assert_called_once_with("activity-1")
         client.get_segments.assert_called_once_with("activity-1")
+        client.update_activity_fields.assert_called_once()
         client.clear_intervals.assert_not_called()
         client.mark_interval.assert_not_called()
 
@@ -147,12 +148,18 @@ class MainTest(unittest.TestCase):
 
         with patch.object(main, "ICUClient", return_value=root_client), patch.object(
             main, "get_target_athlete_ids", return_value=["athlete-1", "athlete-2"]
-        ), patch.object(main, "sync_today_activities") as sync:
+        ), patch.object(main, "ensure_assets_once") as ensure, patch.object(
+            main, "sync_today_activities"
+        ) as sync:
             main.main()
 
         root_client.for_athlete.assert_any_call("athlete-1")
         root_client.for_athlete.assert_any_call("athlete-2")
         self.assertEqual(2, root_client.for_athlete.call_count)
+        self.assertEqual(
+            [((athlete_clients[0],), {}), ((athlete_clients[1],), {})],
+            ensure.call_args_list,
+        )
         self.assertEqual(
             [((athlete_clients[0],), {}), ((athlete_clients[1],), {})],
             sync.call_args_list,
@@ -165,7 +172,7 @@ class MainTest(unittest.TestCase):
 
         with patch.object(main, "ICUClient", return_value=root_client), patch.object(
             main, "get_target_athlete_ids", return_value=["athlete-1", "athlete-2"]
-        ), patch.object(
+        ), patch.object(main, "ensure_assets_once"), patch.object(
             main,
             "sync_today_activities",
             side_effect=[RuntimeError("bad athlete data"), None],
@@ -173,6 +180,59 @@ class MainTest(unittest.TestCase):
             main.main()
 
         self.assertEqual(2, sync.call_count)
+
+    def test_ensure_assets_once_caches_success_per_athlete(self):
+        client = Mock()
+        client.athlete_id = "i123"
+        main._initialized_asset_athletes.clear()
+
+        with patch.object(main, "ensure_assets", return_value={
+            "field_created": True,
+            "chart_created": True,
+            "chart_enabled": True,
+        }) as ensure:
+            main.ensure_assets_once(client)
+            main.ensure_assets_once(client)
+
+        ensure.assert_called_once_with(client)
+
+    def test_sync_strava_segments_data_skips_unchanged_value(self):
+        client = Mock()
+        detail = {"strava_id": "123"}
+        segments = [
+            {
+                "id": 11,
+                "segment_id": 22,
+                "name": "赛段",
+                "start_index": 1,
+                "end_index": 2,
+                "starred": False,
+            }
+        ]
+        value = main.build_segments_json(detail, segments)
+        detail[main.FIELD_CODE] = value
+
+        changed = main.sync_strava_segments_data(
+            client, "activity-1", detail, segments
+        )
+
+        self.assertFalse(changed)
+        client.update_activity_fields.assert_not_called()
+
+    def test_sync_strava_segments_data_updates_changed_value(self):
+        client = Mock()
+        detail = {"strava_id": "123"}
+        segments = []
+
+        changed = main.sync_strava_segments_data(
+            client, "activity-1", detail, segments
+        )
+
+        self.assertTrue(changed)
+        client.update_activity_fields.assert_called_once_with(
+            "activity-1",
+            {main.FIELD_CODE: '{"v":1,"aid":"123","segments":[]}'},
+        )
 
     def test_has_labeled_intervals(self):
         # 出现任意带 label 的分段 -> 判定为用户已操作
