@@ -76,6 +76,18 @@ class ICUClient:
         response.raise_for_status()
         return response.json()
 
+    def update_custom_item(self, item_id, item):
+        """Update an existing custom field, chart, stream, or other item."""
+        url = f"{API_BASE}/athlete/{self.athlete_id}/custom-item/{item_id}"
+        logger.info(
+            "更新自定义项目：athlete_id=%s，name=%s",
+            self.athlete_id,
+            item.get("name"),
+        )
+        response = self.session.put(url, json=item, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response.json()
+
     def get_sport_settings(self, activity_type):
         """Get settings for an activity type such as Ride."""
         url = (

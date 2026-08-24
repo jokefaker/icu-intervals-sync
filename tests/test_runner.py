@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("INTERVALS_ICU_AUTH_PASSWORD", "test-password")
 os.environ.setdefault("INTERVALS_ICU_ATHLETE_ID", "test-athlete")
+os.environ.setdefault("INTERVALS_ICU_ACCOUNTS", "")
 
 import runner
 

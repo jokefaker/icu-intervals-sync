@@ -92,6 +92,7 @@ class StravaSegmentsTest(unittest.TestCase):
             {
                 "field_created": True,
                 "chart_created": True,
+                "chart_updated": False,
                 "chart_enabled": True,
                 "chart_id": 20,
             },
@@ -106,7 +107,7 @@ class StravaSegmentsTest(unittest.TestCase):
                 "type": "ACTIVITY_FIELD",
                 "content": {"code": FIELD_CODE},
             },
-            {"id": 20, "type": "ACTIVITY_CHART", "name": CHART_NAME},
+            {"id": 20, **chart_definition()},
         ]
         client.get_sport_settings.return_value = {
             "id": 30,
@@ -118,9 +119,11 @@ class StravaSegmentsTest(unittest.TestCase):
         result = ensure_assets(client)
 
         client.create_custom_item.assert_not_called()
+        client.update_custom_item.assert_not_called()
         client.update_sport_settings.assert_not_called()
         self.assertFalse(result["field_created"])
         self.assertFalse(result["chart_created"])
+        self.assertFalse(result["chart_updated"])
         self.assertFalse(result["chart_enabled"])
 
     def test_ensure_assets_accepts_bare_chart_id_in_home_list(self):
@@ -131,7 +134,7 @@ class StravaSegmentsTest(unittest.TestCase):
                 "type": "ACTIVITY_FIELD",
                 "content": {"code": FIELD_CODE},
             },
-            {"id": 20, "type": "ACTIVITY_CHART", "name": CHART_NAME},
+            {"id": 20, **chart_definition()},
         ]
         client.get_sport_settings.return_value = {
             "id": 30,
@@ -143,7 +146,33 @@ class StravaSegmentsTest(unittest.TestCase):
         self.assertFalse(result["chart_enabled"])
         client.update_sport_settings.assert_not_called()
 
-    def test_chart_definition_contains_current_table_features(self):
+    def test_ensure_assets_updates_stale_chart_script(self):
+        stale_chart = chart_definition()
+        stale_chart["id"] = 20
+        stale_chart["content"] = dict(stale_chart["content"])
+        stale_chart["content"]["script"] = "chart = null"
+        client = Mock()
+        client.get_custom_items.return_value = [
+            {
+                "id": 10,
+                "type": "ACTIVITY_FIELD",
+                "content": {"code": FIELD_CODE},
+            },
+            stale_chart,
+        ]
+        client.get_sport_settings.return_value = {
+            "id": 30,
+            "activity_charts": {"home": ["20"]},
+        }
+        client.update_custom_item.return_value = {"id": 20}
+
+        result = ensure_assets(client)
+
+        client.update_custom_item.assert_called_once_with(20, chart_definition())
+        self.assertTrue(result["chart_updated"])
+        self.assertFalse(result["chart_created"])
+
+    def test_chart_definition_contains_current_grid_features(self):
         definition = chart_definition()
         script = definition["content"]["script"]
 
@@ -153,7 +182,17 @@ class StravaSegmentsTest(unittest.TestCase):
         self.assertIn("`${hourText}${minuteText}${seconds}s`", script)
         self.assertIn("https://www.strava.com/segments/", script)
         self.assertIn("chart = rows.length ? {", script)
-        self.assertTrue(script.rstrip().endswith("} : null"))
+        self.assertIn('type: "heatmap"', script)
+        self.assertEqual(2, script.count('type: "scatter"'))
+        self.assertIn("icu.streams.watts", script)
+        self.assertNotIn("icu.streams.get", script)
+        self.assertNotIn("values.slice", script)
+        self.assertNotIn("watts.slice", script)
+        self.assertNotIn("rows.filter", script)
+        self.assertNotIn('type: "table"', script)
+        self.assertNotIn("annotations:", script)
+        self.assertNotIn("shapes:", script)
+        self.assertTrue(script.rstrip().endswith("} : null\n}"))
 
 
 if __name__ == "__main__":

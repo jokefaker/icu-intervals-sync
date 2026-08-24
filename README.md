@@ -69,6 +69,32 @@ restarts. Every Ride stores all valid raw Strava segments in the custom field so
 the chart can display them even when interval relabeling is skipped because the
 athlete has manually labeled intervals.
 
+### Multiple passkeys / unrelated athletes
+
+Use `INTERVALS_ICU_ACCOUNTS` when the targets are not all accessible with the
+same coach API key. Its value is a JSON array. Each entry creates an independent
+authenticated session, so a passkey is only used for the athletes in that entry:
+
+```text
+INTERVALS_ICU_ACCOUNTS=[{"athlete_id":"iCOACH","passkey":"coach-api-key","athlete_ids":["iCOACH","iSTUDENT1","iSTUDENT2"]},{"athlete_id":"iOTHER1","passkey":"other-api-key-1"},{"athlete_id":"iOTHER2","passkey":"other-api-key-2"}]
+```
+
+Each entry supports these fields:
+
+- `athlete_id` and `passkey` are required. `athlete_id` identifies the account
+  that owns that passkey.
+- `athlete_ids` is an optional explicit target list accessible by that account.
+  When omitted, only the entry's `athlete_id` is synced.
+- `discover_athletes` can be set to `true` instead of `athlete_ids` to sync the
+  account plus every athlete returned by its `/athletes` endpoint.
+
+When `INTERVALS_ICU_ACCOUNTS` is non-empty, it replaces
+`INTERVALS_ICU_AUTH_PASSWORD`, `INTERVALS_ICU_ATHLETE_ID`,
+`INTERVALS_ICU_ATHLETE_IDS`, and `INTERVALS_ICU_DISCOVER_ATHLETES`. The legacy
+single-passkey configuration remains supported when the new variable is empty.
+Store this JSON as a container secret or private environment variable because it
+contains every configured API key.
+
 Enable automatic restart for the container.
 
 ## Local Run

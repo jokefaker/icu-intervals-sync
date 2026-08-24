@@ -58,7 +58,7 @@ def chart_definition():
         "type": "ACTIVITY_CHART",
         "visibility": "PRIVATE",
         "name": CHART_NAME,
-        "description": "全部 Strava 路段及训练指标，点击路段名称打开公开赛段。",
+        "description": "全部 Strava 路段及训练指标，链接与表格同步滚动。",
         "content": {
             "name": CHART_NAME,
             "link": None,
@@ -93,6 +93,19 @@ def custom_item_id(item):
         return item_id
     nested = item.get("item") or item.get("custom_item")
     return nested.get("id") if isinstance(nested, dict) else None
+
+
+def chart_needs_update(chart, desired):
+    chart_content = chart.get("content") or {}
+    desired_content = desired["content"]
+    return any(
+        (
+            chart.get("description") != desired["description"],
+            chart_content.get("width") != desired_content["width"],
+            chart_content.get("height") != desired_content["height"],
+            chart_content.get("script") != desired_content["script"],
+        )
+    )
 
 
 def build_segments_json(activity, segments):
@@ -155,9 +168,10 @@ def ensure_assets(client):
     if field is None:
         field = client.create_custom_item(field_definition())
 
+    desired_chart = chart_definition()
     chart = find_chart(items)
     if chart is None:
-        chart = client.create_custom_item(chart_definition())
+        chart = client.create_custom_item(desired_chart)
 
     chart_id = custom_item_id(chart)
     if chart_id is None:
@@ -166,10 +180,16 @@ def ensure_assets(client):
     if chart_id is None:
         raise ValueError("创建 Strava 路段图表后未返回图表 ID")
 
+    chart_updated = False
+    if find_chart(items) is not None and chart_needs_update(chart, desired_chart):
+        chart = client.update_custom_item(chart_id, desired_chart)
+        chart_updated = True
+
     enabled = enable_chart_on_ride(client, chart_id)
     return {
         "field_created": find_field(items) is None,
         "chart_created": find_chart(items) is None,
+        "chart_updated": chart_updated,
         "chart_enabled": enabled,
         "chart_id": chart_id,
     }

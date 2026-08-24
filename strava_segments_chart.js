@@ -1,3 +1,4 @@
+{
 const raw = icu.activity.StravaSegmentsJson
 
 let payload = { aid: "", segments: [] }
@@ -8,18 +9,13 @@ try {
 }
 
 const rows = Array.isArray(payload.segments) ? payload.segments : []
-const streamData = name => {
-  const stream = icu.streams.get(name)
-  return stream && Array.isArray(stream.data) ? stream.data : []
-}
-
-const watts = streamData("watts")
-const heartrate = streamData("heartrate")
-const cadence = streamData("cadence")
-const torque = streamData("torque")
-const altitude = streamData("altitude")
-const distance = streamData("distance")
-const time = streamData("time")
+const watts = icu.streams.watts || []
+const heartrate = icu.streams.heartrate || []
+const cadence = icu.streams.cadence || []
+const torque = icu.streams.torque || []
+const altitude = icu.streams.altitude || []
+const distance = icu.streams.distance || []
+const time = icu.streams.time || []
 
 const digits = value => /^\d+$/.test(String(value || "")) ? String(value) : ""
 const escapeHtml = value => String(value || "")
@@ -35,15 +31,28 @@ const compactName = value => {
   return escapeHtml(display)
 }
 
-const range = (values, start, end) => values.slice(start, Math.min(end, values.length))
 const mean = (values, start, end, positiveOnly = false) => {
-  const selected = range(values, start, end).filter(value =>
-    Number.isFinite(value) && (!positiveOnly || value > 0))
-  return selected.length ? selected.reduce((sum, value) => sum + value, 0) / selected.length : null
+  let sum = 0
+  let count = 0
+  const finish = Math.min(end, values.length)
+  for (let i = Math.max(0, start); i < finish; i++) {
+    const value = values[i]
+    if (!Number.isFinite(value) || (positiveOnly && value <= 0)) continue
+    sum += value
+    count++
+  }
+  return count ? sum / count : null
 }
 const maximum = (values, start, end) => {
-  const selected = range(values, start, end).filter(value => Number.isFinite(value) && value > 0)
-  return selected.length ? Math.max(...selected) : null
+  let result = null
+  const finish = Math.min(end, values.length)
+  for (let i = Math.max(0, start); i < finish; i++) {
+    const value = values[i]
+    if (Number.isFinite(value) && value > 0 && (result === null || value > result)) {
+      result = value
+    }
+  }
+  return result
 }
 const round = (value, fractionDigits = 0, suffix = "") =>
   Number.isFinite(value) ? `${value.toFixed(fractionDigits)}${suffix}` : "-"
@@ -60,15 +69,31 @@ const formatDuration = value => {
 
 const normalizedPower = (start, end) => {
   if (!watts.length || end <= start) return null
-  const rolling = []
-  for (let i = start; i < end && i < watts.length; i++) {
-    const window = watts.slice(Math.max(0, i - 29), i + 1)
-      .filter(value => Number.isFinite(value))
-    if (!window.length) continue
-    rolling.push(window.reduce((sum, value) => sum + value, 0) / window.length)
+  let rollingSum = 0
+  let rollingCount = 0
+  let fourthPowerSum = 0
+  let fourthPowerCount = 0
+  const first = Math.max(0, start - 29)
+  const finish = Math.min(end, watts.length)
+  for (let i = first; i < finish; i++) {
+    const value = watts[i]
+    if (Number.isFinite(value)) {
+      rollingSum += value
+      rollingCount++
+    }
+    if (i >= start && rollingCount) {
+      fourthPowerSum += Math.pow(rollingSum / rollingCount, 4)
+      fourthPowerCount++
+    }
+    const expired = i - 29
+    if (expired >= first && Number.isFinite(watts[expired])) {
+      rollingSum -= watts[expired]
+      rollingCount--
+    }
   }
-  if (!rolling.length) return null
-  return Math.pow(rolling.reduce((sum, value) => sum + Math.pow(value, 4), 0) / rolling.length, 0.25)
+  return fourthPowerCount
+    ? Math.pow(fourthPowerSum / fourthPowerCount, 0.25)
+    : null
 }
 
 const elapsedSeconds = (start, end) => {
@@ -137,6 +162,7 @@ const decouplings = []
 const vams = []
 const distances = []
 const averageSpeeds = []
+let starredCount = 0
 
 const dark = Boolean(icu.darkMode)
 const normalRows = dark ? ["#191B1F", "#202329"] : ["#FFFFFF", "#F6F7F9"]
@@ -145,7 +171,7 @@ const textColor = dark ? "#E7E9EC" : "#25282D"
 const mutedColor = dark ? "#A8ADB5" : "#6D737C"
 const gridColor = dark ? "#30343A" : "#E8EAED"
 const headerColor = dark ? "#111317" : "#26292E"
-const linkColor = dark ? "#FF7A45" : "#D83B01"
+const linkColor = dark ? "#66B2FF" : "#1A73E8"
 const ftp = Number(icu.activity.icu_ftp)
 
 rows.forEach(row => {
@@ -159,6 +185,7 @@ rows.forEach(row => {
   const intensity = Number.isFinite(avgPower) && Number.isFinite(ftp) && ftp > 0 ? avgPower / ftp * 100 : null
   const gradient = averageGradient(start, end, meters)
   const avgHr = mean(heartrate, start, end, true)
+  if (row.f) starredCount++
 
   names.push(`${row.f ? "★  " : ""}${compactName(row.n)}`)
   segmentIds.push(digits(row.s))
@@ -214,152 +241,117 @@ const values = [
 ]
 const columnWidths = [270, 62, 68, 76, 68, 68, 68, 68, 58, 48, 72, 62, 58, 66, 72]
 const totalWidth = columnWidths.reduce((sum, width) => sum + width, 0)
+const columnEdges = [0]
+const columnCenters = []
+let columnOffset = 0
+columnWidths.forEach(width => {
+  columnCenters.push(columnOffset + width / 2)
+  columnOffset += width
+  columnEdges.push(columnOffset)
+})
+
 const headerHeight = 40 / 31
 const totalHeight = rows.length + headerHeight
-const columnStarts = []
-columnWidths.reduce((position, width) => {
-  columnStarts.push(position)
-  return position + width
-}, 0)
-
-const shapes = []
-const annotations = []
-const annotationFont = { family: "Arial, Microsoft YaHei, sans-serif", size: 11, color: textColor }
-
-shapes.push({
-  type: "rect",
-  xref: "x",
-  yref: "y",
-  x0: 0,
-  x1: totalWidth,
-  y0: rows.length,
-  y1: totalHeight,
-  line: { width: 0 },
-  fillcolor: headerColor,
-  layer: "below"
-})
-
-rows.forEach((row, rowIndex) => {
-  const y0 = rows.length - rowIndex - 1
-  const y1 = y0 + 1
-  shapes.push({
-    type: "rect",
-    xref: "x",
-    yref: "y",
-    x0: 0,
-    x1: totalWidth,
-    y0,
-    y1,
-    line: { width: 0 },
-    fillcolor: row.f ? starredRow : normalRows[rowIndex % 2],
-    layer: "below"
-  })
-})
-
-for (let boundary = 0; boundary <= columnWidths.length; boundary++) {
-  const x = boundary === columnWidths.length
-    ? totalWidth
-    : columnStarts[boundary]
-  shapes.push({
-    type: "line",
-    xref: "x",
-    yref: "y",
-    x0: x,
-    x1: x,
-    y0: 0,
-    y1: totalHeight,
-    line: { color: gridColor, width: 1 },
-    layer: "above"
-  })
+const rowEdges = Array.from({ length: rows.length + 1 }, (_, index) => index)
+rowEdges.push(totalHeight)
+const backgroundRows = []
+for (let rowIndex = rows.length - 1; rowIndex >= 0; rowIndex--) {
+  const colorCode = rows[rowIndex].f ? 2 : rowIndex % 2
+  backgroundRows.push(headers.map(() => colorCode))
 }
-for (let rowBoundary = 0; rowBoundary <= rows.length; rowBoundary++) {
-  shapes.push({
-    type: "line",
-    xref: "x",
-    yref: "y",
-    x0: 0,
-    x1: totalWidth,
-    y0: rowBoundary,
-    y1: rowBoundary,
-    line: { color: gridColor, width: 1 },
-    layer: "above"
-  })
-}
-shapes.push({
-  type: "line",
-  xref: "x",
-  yref: "y",
-  x0: 0,
-  x1: totalWidth,
-  y0: totalHeight,
-  y1: totalHeight,
-  line: { color: gridColor, width: 1 },
-  layer: "above"
-})
+backgroundRows.push(headers.map(() => 3))
 
+const headerX = []
+const headerY = []
+const headerText = []
+const headerPositions = []
 headers.forEach((header, columnIndex) => {
   const isName = columnIndex === 0
-  annotations.push({
-    xref: "x",
-    yref: "y",
-    x: isName
-      ? columnStarts[columnIndex] + 9
-      : columnStarts[columnIndex] + columnWidths[columnIndex] / 2,
-    y: rows.length + headerHeight / 2,
-    text: header,
-    showarrow: false,
-    xanchor: isName ? "left" : "center",
-    yanchor: "middle",
-    align: isName ? "left" : "center",
-    font: { family: annotationFont.family, size: 11, color: "#FFFFFF" }
-  })
+  headerX.push(isName ? columnEdges[columnIndex] + 8 : columnCenters[columnIndex])
+  headerY.push(rows.length + headerHeight / 2)
+  headerText.push(`<b>${header}</b>`)
+  headerPositions.push(isName ? "middle right" : "middle center")
 })
 
+const bodyX = []
+const bodyY = []
+const bodyText = []
+const bodyPositions = []
 rows.forEach((row, rowIndex) => {
-  const y = rows.length - rowIndex - 0.5
   values.forEach((columnValues, columnIndex) => {
     const isName = columnIndex === 0
-    const isZone = columnIndex === 9
-    const xanchor = isName ? "left" : isZone ? "center" : "right"
-    const x = isName
-      ? columnStarts[columnIndex] + 9
-      : isZone
-        ? columnStarts[columnIndex] + columnWidths[columnIndex] / 2
-        : columnStarts[columnIndex] + columnWidths[columnIndex] - 8
-    const value = String(columnValues[rowIndex])
+    const isCentered = columnIndex === 9
     const segmentId = segmentIds[rowIndex]
-    const text = isName && segmentId
-      ? `<a href="https://www.strava.com/segments/${segmentId}" target="_blank">${value}</a>`
-      : value
-
-    annotations.push({
-      xref: "x",
-      yref: "y",
-      x,
-      y,
-      text,
-      showarrow: false,
-      xanchor,
-      yanchor: "middle",
-      align: isName ? "left" : isZone ? "center" : "right",
-      font: isName && segmentId
-        ? { ...annotationFont, color: linkColor }
-        : annotationFont
-    })
+    const value = String(columnValues[rowIndex])
+    bodyX.push(isName
+      ? columnEdges[columnIndex] + 8
+      : isCentered
+        ? columnCenters[columnIndex]
+        : columnEdges[columnIndex + 1] - 8)
+    bodyY.push(rows.length - rowIndex - 0.5)
+    bodyText.push(isName && segmentId
+      ? `<a href="https://www.strava.com/segments/${segmentId}" target="_blank"><span style="color:${linkColor}">${value}</span></a>`
+      : value)
+    bodyPositions.push(isName
+      ? "middle right"
+      : isCentered
+        ? "middle center"
+        : "middle left")
   })
 })
 
-const starredCount = rows.filter(row => row.f).length
+const colorScale = [
+  [0, normalRows[0]],
+  [0.1666, normalRows[0]],
+  [0.1667, normalRows[1]],
+  [0.4999, normalRows[1]],
+  [0.5, starredRow],
+  [0.8332, starredRow],
+  [0.8333, headerColor],
+  [1, headerColor]
+]
+const chartHeight = Math.max(170, 88 + rows.length * 31)
+
 chart = rows.length ? {
-  data: [{
-    type: "scatter",
-    x: [0, totalWidth],
-    y: [0, totalHeight],
-    mode: "markers",
-    marker: { opacity: 0, size: 1 },
-    hoverinfo: "skip",
-    showlegend: false
-  }],
+  data: [
+    {
+      type: "heatmap",
+      x: columnEdges,
+      y: rowEdges,
+      z: backgroundRows,
+      zmin: 0,
+      zmax: 3,
+      colorscale: colorScale,
+      showscale: false,
+      hoverinfo: "skip",
+      xgap: 1,
+      ygap: 1
+    },
+    {
+      type: "scatter",
+      mode: "text",
+      x: headerX,
+      y: headerY,
+      text: headerText,
+      textposition: headerPositions,
+      textfont: { family: "Arial, Microsoft YaHei, sans-serif", size: 11, color: "#FFFFFF" },
+      cliponaxis: false,
+      hoverinfo: "skip",
+      showlegend: false
+    },
+    {
+      type: "scatter",
+      mode: "text",
+      x: bodyX,
+      y: bodyY,
+      text: bodyText,
+      textposition: bodyPositions,
+      textfont: { family: "Arial, Microsoft YaHei, sans-serif", size: 11, color: textColor },
+      cliponaxis: false,
+      hoverinfo: "skip",
+      showlegend: false
+    }
+  ],
   layout: {
     title: {
       text: `<b>Strava 路段</b>  <span style="font-size:12px;color:${mutedColor}">${rows.length} 个路段 · ${starredCount} 个收藏</span>`,
@@ -367,6 +359,8 @@ chart = rows.length ? {
       xanchor: "left",
       font: { color: textColor, size: 16 }
     },
+    hovermode: false,
+    showlegend: false,
     xaxis: {
       range: [0, totalWidth],
       visible: false,
@@ -377,13 +371,10 @@ chart = rows.length ? {
       visible: false,
       fixedrange: true
     },
-    shapes,
-    annotations,
-    hovermode: false,
-    showlegend: false,
     plot_bgcolor: dark ? "#191B1F" : "#FFFFFF",
     paper_bgcolor: dark ? "#191B1F" : "#FFFFFF",
     margin: { l: 0, r: 0, t: 48, b: 0 },
-    height: Math.max(170, 90 + rows.length * 31)
+    height: chartHeight
   }
 } : null
+}

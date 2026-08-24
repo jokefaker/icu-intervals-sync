@@ -3,7 +3,14 @@ import logging
 import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from config import APP_TIMEZONE, ATHLETE_ID, ATHLETE_IDS, DISCOVER_ATHLETES
+from config import (
+    APP_TIMEZONE,
+    ATHLETE_ID,
+    ATHLETE_IDS,
+    AUTH_USERNAME,
+    DISCOVER_ATHLETES,
+    SYNC_ACCOUNTS,
+)
 from icu_client import ICUClient
 from segment_selector import is_starred, select_segments
 from strava_segments import FIELD_CODE, build_segments_json, ensure_assets
@@ -29,16 +36,19 @@ def _comparable_athlete_id(athlete_id):
     return athlete_id
 
 
-def get_target_athlete_ids(client):
+def get_target_athlete_ids(client, account=None):
     """Resolve explicit targets or discover athletes visible to a coach."""
-    if ATHLETE_IDS:
-        return list(ATHLETE_IDS)
-    if not DISCOVER_ATHLETES:
-        return [ATHLETE_ID]
+    account_athlete_id = account.athlete_id if account else ATHLETE_ID
+    account_athlete_ids = account.athlete_ids if account else ATHLETE_IDS
+    discover_athletes = account.discover_athletes if account else DISCOVER_ATHLETES
+    if account_athlete_ids:
+        return list(account_athlete_ids)
+    if not discover_athletes:
+        return [account_athlete_id]
 
     athletes = client.get_athletes()
-    athlete_ids = [ATHLETE_ID]
-    seen_ids = {_comparable_athlete_id(ATHLETE_ID)}
+    athlete_ids = [account_athlete_id]
+    seen_ids = {_comparable_athlete_id(account_athlete_id)}
     for athlete in athletes:
         athlete_id = _athlete_id_from_record(athlete)
         comparable_id = _comparable_athlete_id(athlete_id)
@@ -57,10 +67,11 @@ def ensure_assets_once(client):
     result = ensure_assets(client)
     _initialized_asset_athletes.add(athlete_key)
     logger.info(
-        "Strava 图表初始化完成：athlete_id=%s，字段新建=%s，图表新建=%s，图表启用=%s",
+        "Strava 图表初始化完成：athlete_id=%s，字段新建=%s，图表新建=%s，图表更新=%s，图表启用=%s",
         client.athlete_id,
         result["field_created"],
         result["chart_created"],
+        result["chart_updated"],
         result["chart_enabled"],
     )
 
@@ -192,19 +203,42 @@ def main():
     logger.info("开始执行赛段重新标记流程")
     logger.info("=" * 60)
 
-    client = ICUClient(athlete_id=ATHLETE_ID)
-    try:
-        athlete_ids = get_target_athlete_ids(client)
-    except Exception as e:
-        logger.error(f"获取同步运动员列表失败：{e}")
-        return
+    sync_jobs = []
+    seen_athletes = set()
+    for account in SYNC_ACCOUNTS:
+        client = ICUClient(
+            athlete_id=account.athlete_id,
+            auth_username=AUTH_USERNAME,
+            auth_password=account.passkey,
+        )
+        try:
+            athlete_ids = get_target_athlete_ids(client, account)
+        except Exception as e:
+            logger.error(
+                "获取同步运动员列表失败：account_athlete_id=%s，错误=%s",
+                account.athlete_id,
+                e,
+            )
+            continue
 
-    if not athlete_ids:
+        for athlete_id in athlete_ids:
+            athlete_key = _comparable_athlete_id(athlete_id)
+            if athlete_key in seen_athletes:
+                logger.warning("运动员重复配置，跳过：athlete_id=%s", athlete_id)
+                continue
+            seen_athletes.add(athlete_key)
+            sync_jobs.append((client, athlete_id))
+
+    if not sync_jobs:
         logger.warning("没有找到需要同步的运动员")
         return
 
-    logger.info("本轮将同步 %s 名运动员", len(athlete_ids))
-    for athlete_id in athlete_ids:
+    logger.info(
+        "本轮将使用 %s 个认证账户同步 %s 名运动员",
+        len(SYNC_ACCOUNTS),
+        len(sync_jobs),
+    )
+    for client, athlete_id in sync_jobs:
         logger.info("开始同步运动员：athlete_id=%s", athlete_id)
         athlete_client = client.for_athlete(athlete_id)
         try:

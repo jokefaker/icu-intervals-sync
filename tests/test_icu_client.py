@@ -4,6 +4,7 @@ from unittest.mock import Mock
 
 os.environ.setdefault("INTERVALS_ICU_AUTH_PASSWORD", "test-password")
 os.environ.setdefault("INTERVALS_ICU_ATHLETE_ID", "test-athlete")
+os.environ.setdefault("INTERVALS_ICU_ACCOUNTS", "")
 
 from icu_client import ICUClient
 
@@ -94,6 +95,23 @@ class ICUClientTest(unittest.TestCase):
         )
         response.raise_for_status.assert_called_once_with()
         self.assertEqual({"id": 10}, created)
+
+    def test_update_custom_item_puts_definition(self):
+        client = ICUClient(athlete_id="athlete-1", auth_username="user", auth_password="pass")
+        response = Mock()
+        response.json.return_value = {"id": 10}
+        client.session.put = Mock(return_value=response)
+        definition = {"name": "Chart", "type": "ACTIVITY_CHART"}
+
+        updated = client.update_custom_item(10, definition)
+
+        client.session.put.assert_called_once_with(
+            "https://intervals.icu/api/v1/athlete/athlete-1/custom-item/10",
+            json=definition,
+            timeout=30,
+        )
+        response.raise_for_status.assert_called_once_with()
+        self.assertEqual({"id": 10}, updated)
 
     def test_update_sport_settings_uses_partial_update(self):
         client = ICUClient(athlete_id="athlete-1", auth_username="user", auth_password="pass")

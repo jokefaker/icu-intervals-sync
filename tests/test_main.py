@@ -1,14 +1,25 @@
 import os
 import unittest
-from unittest.mock import Mock, patch
+from types import SimpleNamespace
+from unittest.mock import Mock, call, patch
 
 os.environ.setdefault("INTERVALS_ICU_AUTH_PASSWORD", "test-password")
 os.environ.setdefault("INTERVALS_ICU_ATHLETE_ID", "test-athlete")
+os.environ.setdefault("INTERVALS_ICU_ACCOUNTS", "")
 
 import main
 
 
 class MainTest(unittest.TestCase):
+    @staticmethod
+    def account(athlete_id, passkey, athlete_ids=(), discover_athletes=False):
+        return SimpleNamespace(
+            athlete_id=athlete_id,
+            passkey=passkey,
+            athlete_ids=athlete_ids,
+            discover_athletes=discover_athletes,
+        )
+
     def test_get_target_athlete_ids_defaults_to_current_athlete(self):
         client = Mock()
 
@@ -181,6 +192,70 @@ class MainTest(unittest.TestCase):
 
         self.assertEqual(2, sync.call_count)
 
+    def test_main_uses_separate_passkey_for_each_account(self):
+        accounts = (
+            self.account(
+                "coach", "coach-key", athlete_ids=("coach", "student")
+            ),
+            self.account("unrelated", "unrelated-key"),
+        )
+        coach_root = Mock()
+        unrelated_root = Mock()
+        athlete_clients = [Mock(), Mock(), Mock()]
+        coach_root.for_athlete.side_effect = athlete_clients[:2]
+        unrelated_root.for_athlete.return_value = athlete_clients[2]
+
+        with patch.object(main, "SYNC_ACCOUNTS", accounts), patch.object(
+            main, "ICUClient", side_effect=[coach_root, unrelated_root]
+        ) as client_class, patch.object(
+            main, "ensure_assets_once"
+        ) as ensure, patch.object(
+            main, "sync_today_activities"
+        ) as sync:
+            main.main()
+
+        self.assertEqual(
+            [
+                call(
+                    athlete_id="coach",
+                    auth_username="API_KEY",
+                    auth_password="coach-key",
+                ),
+                call(
+                    athlete_id="unrelated",
+                    auth_username="API_KEY",
+                    auth_password="unrelated-key",
+                ),
+            ],
+            client_class.call_args_list,
+        )
+        self.assertEqual(3, ensure.call_count)
+        self.assertEqual(3, sync.call_count)
+
+    def test_main_continues_when_one_account_cannot_list_athletes(self):
+        accounts = (
+            self.account("bad", "bad-key", discover_athletes=True),
+            self.account("working", "working-key"),
+        )
+        bad_root = Mock()
+        bad_root.get_athletes.side_effect = RuntimeError("unauthorized")
+        working_root = Mock()
+        working_client = Mock()
+        working_root.for_athlete.return_value = working_client
+
+        with patch.object(main, "SYNC_ACCOUNTS", accounts), patch.object(
+            main, "ICUClient", side_effect=[bad_root, working_root]
+        ), patch.object(main.logger, "error") as error, patch.object(
+            main, "ensure_assets_once"
+        ) as ensure, patch.object(main, "sync_today_activities") as sync:
+            main.main()
+
+        error.assert_called_once()
+        bad_root.for_athlete.assert_not_called()
+        working_root.for_athlete.assert_called_once_with("working")
+        ensure.assert_called_once_with(working_client)
+        sync.assert_called_once_with(working_client)
+
     def test_ensure_assets_once_caches_success_per_athlete(self):
         client = Mock()
         client.athlete_id = "i123"
@@ -189,6 +264,7 @@ class MainTest(unittest.TestCase):
         with patch.object(main, "ensure_assets", return_value={
             "field_created": True,
             "chart_created": True,
+            "chart_updated": False,
             "chart_enabled": True,
         }) as ensure:
             main.ensure_assets_once(client)
